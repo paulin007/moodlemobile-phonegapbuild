@@ -1,3 +1,6 @@
 {
-    "forumnodiscussionsyet": "В данном форуме ещё нет тем для обсуждения"
+    "errorgetforum": "Fel att få forum innehåll",
+    "forumnodiscussionsyet": "Det finns inga diskussionsämnen ännu i detta forum.",
+    "numdiscussions": "{{numdiscussions}} diskussioner",
+    "numreplies": "{{numreplies}} svar"
 }

@@ -15,10 +15,15 @@
 angular.module('mm.core', ['pascalprecht.translate'])
 
 .constant('mmCoreSessionExpired', 'mmCoreSessionExpired')
+.constant('mmCoreUserDeleted', 'mmCoreUserDeleted')
+.constant('mmCoreSecondsYear', 31536000)
 .constant('mmCoreSecondsDay', 86400)
+.constant('mmCoreSecondsHour', 3600)
+.constant('mmCoreSecondsMinute', 60)
+
 
 .config(function($stateProvider, $provide, $ionicConfigProvider, $httpProvider, $mmUtilProvider,
-        $mmLogProvider, $compileProvider) {
+        $mmLogProvider, $compileProvider, $mmInitDelegateProvider, mmInitDelegateMaxAddonPriority) {
 
     // Set tabs to bottom on Android.
     $ionicConfigProvider.platform.android.tabs.position('bottom');
@@ -39,64 +44,6 @@ angular.module('mm.core', ['pascalprecht.translate'])
      */
     $provide.decorator('$log', ['$delegate', $mmLogProvider.logDecorator]);
 
-    // Ugly hack to "decorate" the $stateProvider.state() method.
-    // This allows us to automagically define 'tablet' states which use split views.
-    // We can probably do this better, or define our own $stateProvider to clean this up.
-    var $mmStateProvider = {
-        state: function(name, stateConfig) {
-            function setupTablet(state) {
-                if (!state.tablet) {
-                    return;
-                }
-
-                // Support shorthand tablet definition.
-                if (angular.isString(state.tablet)) {
-                    state.tablet = {
-                        parent: state.tablet
-                    }
-                }
-
-                var params = state.tablet,
-                    parent = params.parent,
-                    node = params.node || 'tablet',
-                    config = {};
-
-                // Remove any trace from the state object.
-                delete state['tablet'];
-
-                // Prepare the default parameters for the tablet.
-                delete params['node'];
-                delete params['parent'];
-                angular.copy(state, config);
-                angular.extend(config, params);
-
-                // We can only support 1 view at the moment.
-                if (config.views.length > 1) {
-                    console.log('Cannot guess the view data to use for tablet state of ' + name);
-                    return;
-                }
-
-                // Find view name.
-                var viewName, viewData;
-                angular.forEach(config.views, function(v, k) {
-                    viewName = k;
-                    viewData = v;
-                }, this);
-
-                // Delete the original view and replace with the new one.
-                delete config.views[viewName];
-                config.views['tablet'] = viewData;
-
-                // Define the new tablet state.
-                $stateProvider.state.apply($stateProvider, [parent + '.' + node, config]);
-            }
-
-            setupTablet.apply(this, [stateConfig]);
-            $stateProvider.state.apply($stateProvider, [name, stateConfig]);
-            return this;
-        }
-    };
-
     $stateProvider
         .state('redirect', {
             url: '/redirect',
@@ -107,19 +54,14 @@ angular.module('mm.core', ['pascalprecht.translate'])
             },
             controller: function($scope, $state, $stateParams, $mmSite, $mmSitesManager, $ionicHistory) {
 
-                function goToSitesList() {
-                    $ionicHistory.nextViewOptions({
-                        disableBack: true
-                    });
-                    $state.go('mm_login.sites');
-                }
+                $ionicHistory.nextViewOptions({disableBack: true});
 
                 function loadSiteAndGo() {
                     $mmSitesManager.loadSite($stateParams.siteid).then(function() {
                         $state.go($stateParams.state, $stateParams.params);
                     }, function() {
                         // Site doesn't exist.
-                        goToSitesList();
+                        $state.go('mm_login.sites');
                     });
                 }
 
@@ -137,7 +79,7 @@ angular.module('mm.core', ['pascalprecht.translate'])
                         if ($stateParams.siteid) {
                             loadSiteAndGo();
                         } else {
-                            goToSitesList();
+                            $state.go('mm_login.sites');
                         }
                     }
                 });
@@ -151,16 +93,45 @@ angular.module('mm.core', ['pascalprecht.translate'])
         return angular.isObject(data) && String(data) !== '[object File]' ? $mmUtilProvider.param(data) : data;
     }];
 
-    // Set our own safe protocols, otherwise geo:// is marked as unsafe.
-    $compileProvider.aHrefSanitizationWhitelist(/^\s*(https?|ftp|mailto|tel|geo|file):/);
+    // Add some protocols to safe protocols.
+    var list = $compileProvider.aHrefSanitizationWhitelist().source;
+
+    function addProtocolIfMissing(protocol) {
+        if (list.indexOf(protocol) == -1) {
+            list = list.replace('https?', 'https?|' + protocol);
+        }
+    }
+    addProtocolIfMissing('file');
+    addProtocolIfMissing('tel');
+    addProtocolIfMissing('mailto');
+    addProtocolIfMissing('geo');
+    $compileProvider.aHrefSanitizationWhitelist(list);
+
+    // Register the core init process, this should be the very first thing.
+    $mmInitDelegateProvider.registerProcess('mmAppInit', '$mmApp.initProcess', mmInitDelegateMaxAddonPriority + 400, true);
+
+    // Register upgrade check process, this should happen almost before everything else.
+    $mmInitDelegateProvider.registerProcess('mmUpdateManager', '$mmUpdateManager.check', mmInitDelegateMaxAddonPriority + 300, true);
 })
 
-.run(function($ionicPlatform, $ionicBody, $window) {
+.run(function($ionicPlatform, $ionicBody, $window, $mmEvents, $mmInitDelegate, mmCoreEventKeyboardShow, mmCoreEventKeyboardHide) {
+    // Execute all the init processes.
+    $mmInitDelegate.executeInitProcesses();
+
+    // When the platform is ready.
     $ionicPlatform.ready(function() {
         var checkTablet = function() {
             $ionicBody.enableClass($ionicPlatform.isTablet(), 'tablet');
         };
         ionic.on('resize', checkTablet, $window);
         checkTablet();
+
+        // Listen for keyboard events. We don't use $cordovaKeyboard because it doesn't support keyboardHeight property.
+        $window.addEventListener('native.keyboardshow', function(e) {
+            $mmEvents.trigger(mmCoreEventKeyboardShow, e);
+        });
+        $window.addEventListener('native.keyboardhide', function(e) {
+            $mmEvents.trigger(mmCoreEventKeyboardHide, e);
+        });
     });
 });

@@ -21,9 +21,80 @@ angular.module('mm.addons.grades')
  * @ngdoc service
  * @name $mmaGradesHandlers
  */
-.factory('$mmaGradesHandlers', function($mmaGrades, $state) {
+.factory('$mmaGradesHandlers', function($mmaGrades, $state, $mmCourses) {
 
     var self = {};
+
+    /**
+     * Course nav handler.
+     *
+     * @module mm.addons.grades
+     * @ngdoc method
+     * @name $mmaGradesHandlers#coursesNav
+     */
+    self.coursesNav = function() {
+
+        var self = {};
+
+        /**
+         * Check if handler is enabled.
+         *
+         * @return {Boolean} True if handler is enabled, false otherwise.
+         */
+        self.isEnabled = function() {
+            return $mmaGrades.isPluginEnabled();
+        };
+
+        /**
+         * Check if handler is enabled for this course.
+         *
+         * @param {Number} courseId Course ID.
+         * @return {Boolean}        True if handler is enabled, false otherwise.
+         */
+        self.isEnabledForCourse = function(courseId) {
+            if (!courseId) {
+                return false;
+            }
+
+            var course = $mmCourses.getStoredCourse(courseId);
+
+            if (course && typeof course.showgrades != 'undefined' && !course.showgrades) {
+                return false;
+            }
+
+            return true;
+        };
+
+        /**
+         * Get the controller.
+         *
+         * @param {Number} courseId Course ID.
+         * @return {Object}         Controller.
+         */
+        self.getController = function() {
+
+            /**
+             * Courses nav handler controller.
+             *
+             * @module mm.addons.grades
+             * @ngdoc controller
+             * @name $mmaGradesHandlers#coursesNav:controller
+             */
+            return function($scope, $state) {
+                $scope.icon = 'ion-stats-bars';
+                $scope.title = 'mma.grades.grades';
+                $scope.action = function($event, course) {
+                    $event.preventDefault();
+                    $event.stopPropagation();
+                    $state.go('site.grades', {
+                        course: course
+                    });
+                };
+            };
+        };
+
+        return self;
+    };
 
     /**
      * View grades handler.
@@ -53,7 +124,17 @@ angular.module('mm.addons.grades')
          * @return {Boolean}        True if handler is enabled, false otherwise.
          */
         self.isEnabledForUser = function(user, courseId) {
-            return courseId;
+            if (!courseId) {
+                return false;
+            }
+
+            var course = $mmCourses.getStoredCourse(courseId);
+
+            if (course && typeof course.showgrades != 'undefined' && !course.showgrades) {
+                return false;
+            }
+
+            return true;
         };
 
         /**

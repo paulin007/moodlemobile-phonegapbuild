@@ -30,6 +30,9 @@ $item-message-note-text: #999 !default;
 $item-message-note-font-size: $font-size-small !default;
 $item-message-mine-bg: rgba(17, 193, 243, .1) !default;
 
+// Completion
+$completion-img-width: 24px !default;
+
 /**
  * Styles revert.
  */
@@ -49,6 +52,12 @@ em {
     @include button-style($bar-content-bg, $bar-content-border, $bar-content-bg, $bar-content-border, $bar-content-text);
     @include button-clear(#fff, $bar-title-font-size);
   }
+}
+
+// Define an alternative way to set a heading in an item without using a heading tag.
+// This is done for accessibility reasons when a heading is semantically incorrect.
+.item .item-heading {
+  @extend h2;
 }
 
 // Media item, ideal for icons.
@@ -138,7 +147,8 @@ em {
 // Spinners.
 .button-block {
   .spinner {
-    float: right;
+    position: absolute;
+    right: $button-padding;
     padding-top: floor(($button-height + ($button-border-width * 2) + 1 - 28) / 2);
     line-height: 28px;
   }
@@ -157,7 +167,6 @@ em {
     line-height: $item-button-line-height;
   }
 }
-
 /**
  * Core directives.
  */
@@ -171,16 +180,74 @@ em {
   right: 0;
 }
 
+// mm-format-text can have elements with float. These styles makes sure height is calculated right.
+.mm-content-with-float {
+  display: inline-block;
+  width: 100%;
+}
+
 .mm-loading-container {
     width: 100%;
     text-align: center;
+    margin-top: 10px;
 }
 
-// Algin ion-spinner right
+.mm-loading-content {
+  height: 100%;
+}
+
+// Align ion-spinner right
 .spinner-right {
   position: absolute;
   top: 8px;
   right: 16px;
+}
+
+.mm-split-item-selected, .mm-split-item-selected .item {
+  border-color: #ccc;
+  background-color: #D9D9D9;
+}
+
+.item.item-text-wrap.item-completion { // Add .item and .item-text-wrap to give more priority to the rule, otherwise it's overridden by Ionic styles.
+  padding-right: $item-icon-font-size + ($button-border-width * 2) + $item-padding * 3 + $completion-img-width;
+}
+
+.mm-completion-container {
+  // Based on .item-checkbox .checkbox and .item-checkbox.item-checkbox-right
+  position: absolute;
+  top: 50%;
+  right: $item-padding / 2;
+  margin-right: $item-icon-font-size + ($button-border-width * 2) + ($item-padding * 2);
+  margin-top: ($completion-img-width / 2) * -1;
+
+  img {
+    float: right;
+    width: $completion-img-width;
+  }
+}
+
+.mm-media-adapt-width {
+  max-width: 100%;
+}
+img.mm-media-adapt-width {
+  height: auto;
+}
+
+.mm-adapted-img-container {
+  position: relative;
+}
+.mm-image-viewer-icon {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  color: black;
+  font-size: 20px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .5);
+  width: 30px;
+  height: 30px;
+  text-align: center;
+  line-height: 30px;
 }
 
 // Extra attributes to ionic classes to force frames via directive 100% height.
@@ -194,6 +261,7 @@ em {
   width: 100%;
 }
 
+<<<<<<< HEAD
 
 
 // la mia custom
@@ -216,3 +284,20 @@ em {
   background-color: #fafafa;
 }
 
+=======
+/**
+ * This CSS uses adjacent selectors instead of general sibling (~) selectors
+ * for ion radio that are broken in iOS 9 UIWebView.
+ *
+ * To apply the patch, include this CSS after your ionic.css include.
+ */
+  .item-radio input:checked + .radio-content .item-content {
+    /* style the item content when its checked */
+    background: #f7f7f7;
+  }
+
+  .item-radio input:checked + .radio-content .radio-icon {
+    /* show the checkmark icon when its checked */
+    visibility: visible;
+  }
+>>>>>>> moodlehq/master

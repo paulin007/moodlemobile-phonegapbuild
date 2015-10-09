@@ -18,7 +18,7 @@ angular.module('mm.core')
  * Directive to open a link in external browser.
  *
  * @module mm.core
- * @ngdoc provider
+ * @ngdoc directive
  * @name mmBrowser
  */
 .directive('mmBrowser', function($mmUtil) {
@@ -30,6 +30,7 @@ angular.module('mm.core')
                 var href = element[0].getAttribute('href');
                 if (href) {
                     event.preventDefault();
+                    event.stopPropagation();
                     if (href.indexOf('cdvfile://') === 0 || href.indexOf('file://') === 0) {
                         // We have a local file.
                         $mmUtil.openFile(href);

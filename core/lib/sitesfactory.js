@@ -115,8 +115,8 @@ angular.module('mm.core')
         return exists;
     }
 
-    this.$get = function($http, $q, $mmWS, $mmDB, $mmConfig, $log, md5, $mmApp, $mmLang, $mmUtil, $mmFS,
-        mmCoreWSCacheStore, mmCoreWSPrefix, mmCoreSessionExpired, $mmEvents, mmCoreEventSessionExpired) {
+    this.$get = function($http, $q, $mmWS, $mmDB, $mmConfig, $log, md5, $mmApp, $mmLang, $mmUtil, $mmFS, mmCoreWSCacheStore,
+            mmCoreWSPrefix, mmCoreSessionExpired, $mmEvents, mmCoreEventSessionExpired, mmCoreUserDeleted, mmCoreEventUserDeleted) {
 
         $log = $log.getInstance('$mmSite');
 
@@ -131,7 +131,6 @@ angular.module('mm.core')
             "core_grade_get_definitions": "core_grading_get_definitions",
             "moodle_course_create_courses": "core_course_create_courses",
             "moodle_course_get_courses": "core_course_get_courses",
-            "moodle_enrol_get_enrolled_users": "core_enrol_get_enrolled_users",
             "moodle_enrol_get_users_courses": "core_enrol_get_users_courses",
             "moodle_file_get_files": "core_files_get_files",
             "moodle_file_upload": "core_files_upload",
@@ -433,7 +432,7 @@ angular.module('mm.core')
                     method = mmCoreWSPrefix + method;
                 } else {
                     $log.error("WS function '" + method + "' is not available, even in compatibility mode.");
-                    $mmLang.translateErrorAndReject(deferred, 'mm.core.wsfunctionnotavailable');
+                    $mmLang.translateAndRejectDeferred(deferred, 'mm.core.wsfunctionnotavailable');
                     return deferred.promise;
                 }
             }
@@ -448,32 +447,36 @@ angular.module('mm.core')
             getFromCache(site, method, data, preSets).then(function(data) {
                 deferred.resolve(data);
             }, function() {
-                var mustSaveToCache = preSets.saveToCache;
-                var cacheKey = preSets.cacheKey;
-                var emergencyCache = typeof preSets.emergencyCache !== 'undefined' ? preSets.emergencyCache : true;
-
                 // Do not pass those options to the core WS factory.
-                delete preSets.getFromCache;
-                delete preSets.saveToCache;
-                delete preSets.omitExpires;
-                delete preSets.cacheKey;
-                delete preSets.emergencyCache;
+                var wsPreSets = angular.copy(preSets);
+                delete wsPreSets.getFromCache;
+                delete wsPreSets.saveToCache;
+                delete wsPreSets.omitExpires;
+                delete wsPreSets.cacheKey;
+                delete wsPreSets.emergencyCache;
+                delete wsPreSets.getCacheUsingCacheKey;
 
                 // TODO: Sync
 
-                $mmWS.call(method, data, preSets).then(function(response) {
+                $mmWS.call(method, data, wsPreSets).then(function(response) {
 
-                    if (mustSaveToCache) {
-                        saveToCache(site, method, data, response, cacheKey);
+                    if (preSets.saveToCache) {
+                        saveToCache(site, method, data, response, preSets.cacheKey);
                     }
 
-                    deferred.resolve(response);
+                    // We pass back a clone of the original object, this may
+                    // prevent errors if in the callback the object is modified.
+                    deferred.resolve(angular.copy(response));
                 }, function(error) {
                     if (error === mmCoreSessionExpired) {
                         // Session expired, trigger event.
-                        $mmLang.translateErrorAndReject(deferred, 'mm.core.lostconnection');
-                        $mmEvents.trigger(mmCoreEventSessionExpired, {siteid: site.id});
-                    } else if (!emergencyCache) {
+                        $mmLang.translateAndRejectDeferred(deferred, 'mm.core.lostconnection');
+                        $mmEvents.trigger(mmCoreEventSessionExpired, site.id);
+                    } else if (error === mmCoreUserDeleted) {
+                        // User deleted, trigger event.
+                        $mmLang.translateErrorAndReject(deferred, 'mm.core.userdeleted');
+                        $mmEvents.trigger(mmCoreEventUserDeleted, {siteid: site.id, params: data});
+                    } else if (typeof preSets.emergencyCache !== 'undefined' && !preSets.emergencyCache) {
                         $log.debug('WS call ' + method + ' failed. Emergency cache is forbidden, rejecting.');
                         deferred.reject(error);
                     } else {
@@ -536,6 +539,25 @@ angular.module('mm.core')
             return $mmWS.uploadFile(uri, options, {
                 siteurl: this.siteurl,
                 token: this.token
+            });
+        };
+
+        /**
+         * Invalidates all the cache entries.
+         *
+         * @return {Promise} Promise resolved when the cache entries are invalidated.
+         */
+        Site.prototype.invalidateWsCache = function() {
+            var db = this.db;
+            if (!db) {
+                return $q.reject();
+            }
+
+            $log.debug('Invalidate all the cache for site: '+ this.id);
+            return db.getAll(mmCoreWSCacheStore).then(function(entries) {
+                if (entries && entries.length > 0) {
+                    return invalidateWsCacheEntries(db, entries);
+                }
             });
         };
 
@@ -606,15 +628,29 @@ angular.module('mm.core')
          * @return {Promise} Promise to be resolved when the DB is deleted.
          */
         Site.prototype.deleteFolder = function() {
-            var deferred = $q.defer();
             if ($mmFS.isAvailable()) {
                 var siteFolder = $mmFS.getSiteFolder(this.id);
                 // Ignore any errors, $mmFS.removeDir fails if folder doesn't exists.
-                $mmFS.removeDir(siteFolder).then(deferred.resolve, deferred.resolve);
+                return $mmFS.removeDir(siteFolder);
             } else {
-                deferred.resolve();
+                return $q.when();
             }
-            return deferred.promise;
+        };
+
+        /**
+         * Get space usage of the site.
+         *
+         * @return {Promise} Promise resolved with the site space usage (size).
+         */
+        Site.prototype.getSpaceUsage = function() {
+            if ($mmFS.isAvailable()) {
+                var siteFolderPath = $mmFS.getSiteFolder(this.id);
+                return $mmFS.getDirectorySize(siteFolderPath).catch(function() {
+                    return 0;
+                });
+            } else {
+                return $q.when(0);
+            }
         };
 
         /**
@@ -626,6 +662,85 @@ angular.module('mm.core')
         Site.prototype.getDocsUrl = function(page) {
             var release = this.infos.release ? this.infos.release : undefined;
             return $mmUtil.getDocsUrl(release, page);
+        };
+
+        /**
+         * Check if the local_mobile plugin is installed in the Moodle site.
+         * This plugin provide extended services.
+         *
+         * @return {Promise} Promise resolved when the check is done. Resolve params:
+         *                           - {Number} code Code to identify the authentication method to use.
+         *                           - {String} [service] If defined, name of the service to use.
+         *                           - {String} [warning] If defined, code of the warning message.
+         */
+        Site.prototype.checkLocalMobilePlugin = function() {
+            var siteurl = this.siteurl;
+
+            return $mmConfig.get('wsextservice').then(function(service) {
+
+                return $http.post(siteurl + '/local/mobile/check.php', {service: service}).then(function(response) {
+                    var data = response.data;
+
+                    if (typeof data == 'undefined' || typeof data.code == 'undefined') {
+                        // local_mobile returned something we didn't expect. Let's assume it's not installed.
+                        return {code: 0, warning: 'mm.login.localmobileunexpectedresponse'};
+                    }
+
+                    var code = parseInt(data.code, 10);
+                    if (data.error) {
+                        switch (code) {
+                            case 1:
+                                // Site in maintenance mode.
+                                return $mmLang.translateAndReject('mm.login.siteinmaintenance');
+                            case 2:
+                                // Web services not enabled.
+                                return $mmLang.translateAndReject('mm.login.webservicesnotenabled');
+                            case 3:
+                                // Extended service not enabled, but the official is enabled.
+                                return {code: 0};
+                            case 4:
+                                // Neither extended or official services enabled.
+                                return $mmLang.translateAndReject('mm.login.mobileservicesnotenabled');
+                            default:
+                                return $mmLang.translateAndReject('mm.core.unexpectederror');
+                        }
+                    } else {
+                        return {code: code, service: service};
+                    }
+                }, function() {
+                    return {code: 0};
+                });
+
+            }, function() {
+                return {code: 0};
+            });
+        };
+
+        /**
+         * Check if local_mobile has been installed in Moodle but the app is not using it.
+         *
+         * @return {Promise} Promise resolved it local_mobile was added, rejected otherwise.
+         */
+        Site.prototype.checkIfLocalMobileInstalledAndNotUsed = function() {
+            var appUsesLocalMobile = false;
+            angular.forEach(this.infos.functions, function(func) {
+                if (func.name.indexOf(mmCoreWSPrefix) != -1) {
+                    appUsesLocalMobile = true;
+                }
+            });
+
+            if (appUsesLocalMobile) {
+                // App already uses local_mobile, it wasn't added.
+                return $q.reject();
+            }
+
+            return this.checkLocalMobilePlugin().then(function(data) {
+                if (typeof data.service == 'undefined') {
+                    // local_mobile NOT installed. Reject.
+                    return $q.reject();
+                }
+                return data;
+            });
         };
 
         /**

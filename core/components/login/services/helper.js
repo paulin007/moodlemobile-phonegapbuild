@@ -43,7 +43,7 @@ angular.module('mm.core.login')
      */
     self.isSSOLoginNeeded = function(code) {
         return code == mmLoginSSOCode;
-    }
+    };
 
     /**
      * Open a browser to perform SSO login.
@@ -109,9 +109,7 @@ angular.module('mm.core.login')
                 } else {
                     $log.debug('Inalid signature in the URL request yours: ' + params[0] + ' mine: '
                                     + signature + ' for passport ' + passport);
-                    return $translate('mm.core.unexpectederror').then(function(errorString) {
-                        return $q.reject(errorString);
-                    });
+                    return $mmLang.translateAndReject('mm.core.unexpectederror');
                 }
 
             });
@@ -137,13 +135,14 @@ angular.module('mm.core.login')
             // Retrieve username.
             var info = $mmSite.getInfo();
             if (typeof(info) !== 'undefined' && typeof(info.username) !== 'undefined') {
-
-                $mmSitesManager.updateSiteToken(siteurl, info.username, token).then(deferred.resolve, function() {
+                $mmSitesManager.updateSiteToken(info.siteurl, info.username, token).then(function() {
+                    $mmSitesManager.updateSiteInfoByUrl(info.siteurl, info.username).finally(deferred.resolve);
+                }, function() {
                     // Error updating token, return proper error message.
-                    $mmLang.translateErrorAndReject(deferred, 'mm.login.errorupdatesite');
+                    $mmLang.translateAndRejectDeferred(deferred, 'mm.login.errorupdatesite');
                 });
             } else {
-                $mmLang.translateErrorAndReject(deferred, 'mm.login.errorupdatesite');
+                $mmLang.translateAndRejectDeferred(deferred, 'mm.login.errorupdatesite');
             }
             return deferred.promise;
         } else {

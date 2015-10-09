@@ -1,4 +1,5 @@
 {
-    "notifications": "Mitteilungen",
-    "therearentnotificationsyet": "Keine Mitteilungen vorhanden"
+    "errorgetnotifications": "Fehler beim Abrufen von Nachrichten",
+    "notifications": "Nachrichten",
+    "therearentnotificationsyet": "Keine Nachrichten"
 }

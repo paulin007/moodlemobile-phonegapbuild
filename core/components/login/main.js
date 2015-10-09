@@ -14,7 +14,7 @@
 
 angular.module('mm.core.login', [])
 
-.config(function($stateProvider, $urlRouterProvider) {
+.config(function($stateProvider, $urlRouterProvider, $mmInitDelegateProvider, mmInitDelegateMaxAddonPriority) {
 
     $stateProvider
 
@@ -23,7 +23,7 @@ angular.module('mm.core.login', [])
         abstract: true,
         templateUrl: 'core/components/login/templates/base.html',
         cache: false,   // Disable caching to force controller reload.
-        onEnter: function($ionicHistory, $state, $mmSitesManager, $mmSite) {
+        onEnter: function($ionicHistory) {
             // Ensure that there is no history stack when getting here.
             $ionicHistory.clearHistory();
         }
@@ -51,14 +51,7 @@ angular.module('mm.core.login', [])
     .state('mm_login.site', {
         url: '/site',
         templateUrl: 'core/components/login/templates/site.html',
-        controller: 'mmLoginSiteCtrl',
-        onEnter: function($ionicNavBarDelegate, $ionicHistory, $mmSitesManager) {
-            // Don't show back button if there are no sites.
-            $mmSitesManager.hasNoSites().then(function() {
-                $ionicNavBarDelegate.showBackButton(false);
-                $ionicHistory.clearHistory();
-            });
-        }
+        controller: 'mmLoginSiteCtrl'
     })
 
     .state('mm_login.credentials', {
@@ -83,20 +76,23 @@ angular.module('mm.core.login', [])
         cache: false,
         params: {
             siteurl: '',
-            username: ''
+            username: '',
+            infositeurl: ''
         }
     });
 
     // Default redirect to the login page.
-    $urlRouterProvider.otherwise(function($injector, $location) {
+    $urlRouterProvider.otherwise(function($injector) {
         var $state = $injector.get('$state');
         return $state.href('mm_login.init').replace('#', '');
     });
 
+    // Restore the session.
+    $mmInitDelegateProvider.registerProcess('mmLogin', '$mmSitesManager.restoreSession', mmInitDelegateMaxAddonPriority + 200);
 })
 
 .run(function($log, $state, $mmUtil, $translate, $mmSitesManager, $rootScope, $mmSite, $mmURLDelegate, $ionicHistory,
-                $mmEvents, $mmLoginHelper, mmCoreEventSessionExpired) {
+                $mmEvents, $mmLoginHelper, mmCoreEventSessionExpired, $mmApp) {
 
     $log = $log.getInstance('mmLogin');
 
@@ -108,6 +104,14 @@ angular.module('mm.core.login', [])
 
     // Redirect depending on user session.
     $rootScope.$on('$stateChangeStart', function(event, toState, toParams, fromState, fromParams) {
+
+        // Prevent state changes while the app is not ready.
+        if (!$mmApp.isReady() && toState.name !== 'mm_login.init') {
+            event.preventDefault();
+            $state.transitionTo('mm_login.init');
+            $log.warn('Forbidding state change to \'' + toState.name + '\'. App is not ready yet.');
+            return;
+        }
 
         if (toState.name.substr(0, 8) === 'redirect') {
             return;
@@ -136,20 +140,23 @@ angular.module('mm.core.login', [])
     });
 
     // Function to handle session expired events.
-    function sessionExpired(data) {
+    function sessionExpired(siteid) {
 
         var siteurl = $mmSite.getURL();
 
         if (typeof(siteurl) !== 'undefined') {
 
-            if (typeof data != 'undefined') {
-                if (data.siteid !== $mmSite.getId()) {
-                    return; // Site that triggered the event is not current site.
-                }
+            if (siteid && siteid !== $mmSite.getId()) {
+                return; // Site that triggered the event is not current site.
             }
 
             // Check authentication method.
             $mmSitesManager.checkSite(siteurl).then(function(result) {
+
+                if (result.warning) {
+                    $mmUtil.showErrorModal(result.warning, true, 4000);
+                }
+
                 if ($mmLoginHelper.isSSOLoginNeeded(result.code)) {
                     // SSO. User needs to authenticate in a browser.
                     $mmUtil.showConfirm($translate('mm.login.reconnectssodescription')).then(function() {
@@ -158,7 +165,8 @@ angular.module('mm.core.login', [])
                 } else {
                     var info = $mmSite.getInfo();
                     if (typeof(info) !== 'undefined' && typeof(info.username) !== 'undefined') {
-                        $state.go('mm_login.reconnect', {siteurl: siteurl, username: info.username});
+                        $ionicHistory.nextViewOptions({disableBack: true});
+                        $state.go('mm_login.reconnect', {siteurl: siteurl, username: info.username, infositeurl: info.siteurl});
                     }
                 }
             });

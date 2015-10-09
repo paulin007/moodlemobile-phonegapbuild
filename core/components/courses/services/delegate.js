@@ -15,61 +15,198 @@
 angular.module('mm.core.courses')
 
 /**
- * Service to interact with plugins to be shown in each course. Provides functions to register a plugin
- * and notify an update in the data.
+ * Service to interact with courses.
  *
  * @module mm.core.courses
  * @ngdoc service
  * @name $mmCoursesDelegate
  */
-.factory('$mmCoursesDelegate', function($log) {
-
-    $log = $log.getInstance('$mmCoursesDelegate');
-
-    var plugins = {},
-        self = {},
-        data;
+.provider('$mmCoursesDelegate', function() {
+    var navHandlers = {},
+        self = {};
 
     /**
-     * Register a plugin to show in the course.
+     * Register a navigation handler.
      *
-     * @param  {String}   name     Name of the plugin.
-     * @param  {Function} callback Function to call to get the plugin data. This function should return an object with:
-     *                                 -icon: Icon to show next to the plugin name.
-     *                                 -title: Plugin name to be displayed.
-     *                                 -state: sref to the plugin's main state (i.e. site.grades).
-     *                             If the plugin should not be shown (disabled, etc.) this function should return undefined.
+     * @module mm.core.courses
+     * @ngdoc method
+     * @name $mmCoursesDelegate#registerNavHandler
+     * @param {String} addon The addon's name (mmaLabel, mmaForum, ...)
+     * @param {String|Object|Function} handler Must be resolved to an object defining the following functions. Or to a function
+     *                           returning an object defining these functions. See {@link $mmUtil#resolveObject}.
+     *                             - isEnabled (Boolean|Promise) Whether or not the handler is enabled on a site level.
+     *                                                           When using a promise, it should return a boolean.
+     *                             - isEnabledForCourse(courseid) (Boolean|Promise) Whether or not the handler is enabled on a course level.
+     *                                                                              When using a promise, it should return a boolean.
+     *                             - getController(courseid) (Object) Returns the object that will act as controller.
+     *                                                                See core/components/courses/templates/list.html
+     *                                                                for the list of scope variables expected.
      */
-    self.registerPlugin = function(name, callback) {
-        $log.debug("Register plugin '"+name+"' in course.");
-        plugins[name] = callback;
-    };
-
-    /**
-     * Update the plugin data stored in the delegate.
-     *
-     * @param  {String}   name     Name of the plugin.
-     */
-    self.updatePluginData = function(name) {
-        $log.debug("Update plugin '"+name+"' data in course.");
-        var pluginData = plugins[name]();
-        if (typeof(pluginData) !== 'undefined') {
-            data[name] = pluginData;
+    self.registerNavHandler = function(addon, handler, priority) {
+        if (typeof navHandlers[addon] !== 'undefined') {
+            console.log("$mmCoursesDelegateProvider: Addon '" + navHandlers[addon].addon + "' already registered as navigation handler");
+            return false;
         }
+        console.log("$mmCoursesDelegateProvider: Registered addon '" + addon + "' as navibation handler.");
+        navHandlers[addon] = {
+            addon: addon,
+            handler: handler,
+            instance: undefined,
+            priority: priority
+        };
+        return true;
     };
 
-    /**
-     * Get the data of the registered plugins.
-     *
-     * @return {Object} Registered plugins data.
-     */
-    self.getData = function() {
-        data = {};
-        angular.forEach(plugins, function(callback, plugin) {
-            self.updatePluginData(plugin);
-        });
-        return data;
+    self.$get = function($mmUtil, $q, $log, $mmSite) {
+        var enabledNavHandlers = {},
+            coursesHandlers = {},
+            self = {};
+
+        $log = $log.getInstance('$mmCoursesDelegate');
+
+        /**
+         * Clear all courses handlers.
+         *
+         * @module mm.core.courses
+         * @ngdoc method
+         * @name $mmCoursesDelegate#clearCoursesHandlers
+         * @protected
+         */
+        self.clearCoursesHandlers = function() {
+            coursesHandlers = {};
+        };
+
+        /**
+         * Get the handlers for a course.
+         *
+         * @module mm.core.courses
+         * @ngdoc method
+         * @name $mmCoursesDelegate#getNavHandlersFor
+         * @param {Number} courseId The course ID.
+         * @return {Array}          Array of objects containing 'priority' and 'controller'.
+         */
+        self.getNavHandlersFor = function(courseId) {
+            if (typeof(coursesHandlers[courseId]) == 'undefined') {
+                coursesHandlers[courseId] = [];
+                self.updateNavHandlersForCourse(courseId);
+            }
+            return coursesHandlers[courseId];
+        };
+
+        /**
+         * Update the handler for the current site.
+         *
+         * @module mm.core.courses
+         * @ngdoc method
+         * @name $mmCoursesDelegate#updateNavHandler
+         * @param {String} addon The addon.
+         * @param {Object} handlerInfo The handler details.
+         * @return {Promise} Resolved when enabled, rejected when not.
+         * @protected
+         */
+        self.updateNavHandler = function(addon, handlerInfo) {
+            var promise;
+
+            if (typeof handlerInfo.instance === 'undefined') {
+                handlerInfo.instance = $mmUtil.resolveObject(handlerInfo.handler, true);
+            }
+
+            if (!$mmSite.isLoggedIn()) {
+                promise = $q.reject();
+            } else {
+                promise = $q.when(handlerInfo.instance.isEnabled());
+            }
+
+            // Checks if the content is enabled.
+            return promise.then(function(enabled) {
+                if (enabled) {
+                    enabledNavHandlers[addon] = {
+                        instance: handlerInfo.instance,
+                        priority: handlerInfo.priority
+                    };
+                } else {
+                    return $q.reject();
+                }
+            }).catch(function() {
+                delete enabledNavHandlers[addon];
+            });
+        };
+
+        /**
+         * Update the handlers for the current site.
+         *
+         * @module mm.core.courses
+         * @ngdoc method
+         * @name $mmCoursesDelegate#updateNavHandlers
+         * @return {Promise} Resolved when done.
+         * @protected
+         */
+        self.updateNavHandlers = function() {
+            var promises = [];
+
+            $log.debug('Updating navigation handlers for current site.');
+
+            // Loop over all the content handlers.
+            angular.forEach(navHandlers, function(handlerInfo, addon) {
+                promises.push(self.updateNavHandler(addon, handlerInfo));
+            });
+
+            return $q.all(promises).then(function() {
+                return true;
+            }, function() {
+                // Never reject.
+                return true;
+            }).finally(function() {
+                // Update handlers for all courses.
+                angular.forEach(coursesHandlers, function(handler, courseId) {
+                    self.updateNavHandlersForCourse(courseId);
+                });
+            });
+        };
+
+        /**
+         * Update the handlers for a certain course.
+         *
+         * @module mm.core.courses
+         * @ngdoc method
+         * @name $mmCoursesDelegate#updateNavHandlersForCourse
+         * @param {Number} courseId The course ID.
+         * @return {Promise}        Resolved when updated.
+         * @protected
+         */
+        self.updateNavHandlersForCourse = function(courseId) {
+            var promises = [];
+
+            $mmUtil.emptyArray(coursesHandlers[courseId]);
+
+            angular.forEach(enabledNavHandlers, function(handler) {
+                // Checks if the handler is enabled for the user.
+                var promise = $q.when(handler.instance.isEnabledForCourse(courseId)).then(function(enabled) {
+                    if (enabled) {
+                        coursesHandlers[courseId].push({
+                            controller: handler.instance.getController(courseId),
+                            priority: handler.priority
+                        });
+                    } else {
+                        return $q.reject();
+                    }
+                }).catch(function() {
+                    // Nothing to do here, it is not enabled for this user.
+                });
+                promises.push(promise);
+            });
+
+            return $q.all(promises).then(function() {
+                return true;
+            }).catch(function() {
+                // Never fails.
+                return true;
+            });
+        };
+
+        return self;
     };
+
 
     return self;
 });

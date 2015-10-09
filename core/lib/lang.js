@@ -23,7 +23,8 @@ angular.module('mm.core')
  */
 .factory('$mmLang', function($translate, $translatePartialLoader, $mmConfig, $cordovaGlobalization, $q) {
 
-    var self = {};
+    var self = {},
+        currentLanguage; // Save current language in a variable to speed up the get function.
 
     /**
      * Register a folder to search language files into it.
@@ -32,9 +33,11 @@ angular.module('mm.core')
      * @ngdoc method
      * @name $mmLang#registerLanguageFolder
      * @param  {String} path Path of the folder to use.
+     * @return {Promise}     Promise resolved when file is loaded.
      */
     self.registerLanguageFolder = function(path) {
         $translatePartialLoader.addPart(path);
+        return $translate.refresh();
     };
 
     /**
@@ -46,6 +49,10 @@ angular.module('mm.core')
      * @return {[type]} [description]
      */
     self.getCurrentLanguage = function() {
+
+        if (typeof currentLanguage != 'undefined') {
+            return $q.when(currentLanguage);
+        }
 
         // Get default language from config.
         function getDefaultLanguage() {
@@ -87,6 +94,9 @@ angular.module('mm.core')
                 // Error getting locale. Use default language.
                 return getDefaultLanguage();
             }
+        }).then(function(language) {
+            currentLanguage = language; // Save it for later.
+            return language;
         });
     };
 
@@ -102,7 +112,26 @@ angular.module('mm.core')
     self.changeCurrentLanguage = function(language) {
         var p1 = $translate.use(language),
             p2 = $mmConfig.set('current_language', language);
-        return $q.all(p1, p2);
+        moment.locale(language);
+        currentLanguage = language;
+        return $q.all([p1, p2]);
+    };
+
+    /**
+     * Translates an error message and returns a rejected promise with the translated message.
+     *
+     * @module mm.core
+     * @ngdoc method
+     * @name $mmLang#translateAndReject
+     * @param  {String} errorkey Key of the message to show.
+     * @return {Promise}         Rejected promise.
+     */
+    self.translateAndReject = function(errorkey) {
+        return $translate(errorkey).then(function(errorMessage) {
+            return $q.reject(errorMessage);
+        }, function() {
+            return $q.reject(errorkey);
+        });
     };
 
     /**
@@ -110,11 +139,11 @@ angular.module('mm.core')
      *
      * @module mm.core
      * @ngdoc method
-     * @name $mmLang#translateErrorAndReject
+     * @name $mmLang#translateAndRejectDeferred
      * @param  {Object} deferred Deferred object to reject.
      * @param  {String} errorkey Key of the message to show.
      */
-    self.translateErrorAndReject = function(deferred, errorkey) {
+    self.translateAndRejectDeferred = function(deferred, errorkey) {
         $translate(errorkey).then(function(errorMessage) {
             deferred.reject(errorMessage);
         }, function() {
@@ -143,6 +172,7 @@ angular.module('mm.core')
     $ionicPlatform.ready(function() {
         $mmLang.getCurrentLanguage().then(function(language) {
             $translate.use(language);
+            moment.locale(language);
         });
     });
 });

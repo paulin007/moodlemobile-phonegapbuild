@@ -1,4 +1,7 @@
 {
-    "noevents": "Нет событий",
+    "calendarevents": "Kalenderhändelser",
+    "errorloadevent": "Fel vid inläsning av händelse.",
+    "errorloadevents": "Fel vid inläsning av händelser",
+    "noevents": "Det finns inga händelser",
     "notifications": "Meddelanden"
 }

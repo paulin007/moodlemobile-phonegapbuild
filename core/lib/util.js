@@ -21,7 +21,7 @@ angular.module('mm.core')
  * @ngdoc provider
  * @name $mmUtil
  */
-.provider('$mmUtil', function() {
+.provider('$mmUtil', function(mmCoreSecondsYear, mmCoreSecondsDay, mmCoreSecondsHour, mmCoreSecondsMinute) {
 
     var self = this; // Use 'self' to be coherent with the rest of services.
 
@@ -64,12 +64,11 @@ angular.module('mm.core')
         return query.length ? query.substr(0, query.length - 1) : query;
     };
 
-    this.$get = function($ionicLoading, $ionicPopup, $translate, $http, $log, $q, $mmLang, $mmFS) {
+    this.$get = function($ionicLoading, $ionicPopup, $injector, $translate, $http, $log, $q, $mmLang, $mmFS, $timeout) {
 
         $log = $log.getInstance('$mmUtil');
 
-        var self = {}, // Use 'self' to be coherent with the rest of services.
-            countries;
+        var self = {}; // Use 'self' to be coherent with the rest of services.
 
         // // Loading all the mimetypes.
         var mimeTypes = {};
@@ -106,6 +105,56 @@ angular.module('mm.core')
             url = url.replace(/\/$/, "");
 
             return url;
+        };
+
+        /**
+         * Resolves an object.
+         *
+         * @description
+         * This is used to resolve what a callback should be when attached to a delegate.
+         * For instance, if the object attached is a function, it is returned as is, but
+         * we also support complex definition of objects. If we receive a string we will parse
+         * it and to inject its service using $injector from Angular.
+         *
+         * Examples:
+         * - (Function): returns the same function.
+         * - (Object): returns the same object.
+         * - '$mmSomething': Injects and returns $mmSomething.
+         * - '$mmSomething.method': Injectes and returns a reference to the function 'method'.
+         *
+         * @module mm.core
+         * @ngdoc method
+         * @name $mmUtil#resolveObject
+         * @param  {Mixed} object String, object or function.
+         * @param  {Boolean} [instantiate=false] When true, if the object resolved is a function, instantiates it.
+         * @return {Object} The reference to the object resolved.
+         */
+        self.resolveObject = function(object, instantiate) {
+            var toInject,
+                resolved;
+
+            instantiate = angular.isUndefined(instantiate) ? false : instantiate;
+
+            if (angular.isFunction(object) || angular.isObject(object)) {
+                resolved = object;
+
+            } else if (angular.isString(object)) {
+                toInject = object.split('.');
+                resolved = $injector.get(toInject[0]);
+
+                if (toInject.length > 1) {
+                    resolved = resolved[toInject[1]];
+                }
+            }
+
+            if (angular.isFunction(resolved) && instantiate) {
+                resolved = resolved();
+            }
+
+            if (typeof resolved === 'undefined') {
+                throw new Error('Unexpected argument passed passed');
+            }
+            return resolved;
         };
 
         /**
@@ -165,13 +214,55 @@ angular.module('mm.core')
         };
 
         /**
+         * Returns if a URL is downloadable: plugin file OR theme/image.php OR gravatar.
+         *
+         * @module mm.core
+         * @ngdoc method
+         * @name $mmUtil#isDownloadableUrl
+         * @param  {String}  url The URL to test.
+         * @return {Boolean}     True when the URL is downloadable.
+         */
+        self.isDownloadableUrl = function(url) {
+            return self.isPluginFileUrl(url) || self.isThemeImageUrl(url) || self.isGravatarUrl(url);
+        };
+
+        /**
+         * Returns if a URL is a gravatar URL.
+         *
+         * @module mm.core
+         * @ngdoc method
+         * @name $mmUtil#isGravatarUrl
+         * @param  {String}  url The URL to test.
+         * @return {Boolean}     True when the URL is a gravatar URL.
+         */
+        self.isGravatarUrl = function(url) {
+            return url && url.indexOf('gravatar.com/avatar') !== -1;
+        };
+
+        /**
          * Returns if a URL is a pluginfile URL.
          *
+         * @module mm.core
+         * @ngdoc method
+         * @name $mmUtil#isPluginFileUrl
          * @param  {String}  url The URL to test.
          * @return {Boolean}     True when the URL is a pluginfile URL.
          */
         self.isPluginFileUrl = function(url) {
-            return url && (url.indexOf('/pluginfile.php') !== -1);
+            return url && url.indexOf('/pluginfile.php') !== -1;
+        };
+
+        /**
+         * Returns if a URL is a theme image URL.
+         *
+         * @module mm.core
+         * @ngdoc method
+         * @name $mmUtil#isThemeImageUrl
+         * @param  {String}  url The URL to test.
+         * @return {Boolean}     True when the URL is a theme image URL.
+         */
+        self.isThemeImageUrl = function(url) {
+            return url && url.indexOf('/theme/image.php') !== -1;
         };
 
         /**
@@ -222,7 +313,7 @@ angular.module('mm.core')
             }
 
             // In which way the server is serving the files? Are we using slash parameters?
-            if (url.indexOf('?file=') != -1 || url.indexOf('?forcedownload=') != -1) {
+            if (url.indexOf('?file=') != -1 || url.indexOf('?forcedownload=') != -1 || url.indexOf('?rev=') != -1) {
                 url += '&';
             } else {
                 url += '?';
@@ -234,44 +325,6 @@ angular.module('mm.core')
                 url = url.replace('/pluginfile', '/webservice/pluginfile');
             }
             return url;
-        };
-
-        /**
-         * Get the SRC for to use an iframe.
-         *
-         * @module mm.core
-         * @ngdoc method
-         * @name $mmUtil#getIframeSrc
-         * @param  {Object} files List of files where the key is the path in the iframe,
-         *                        and the value the path to the local file.
-         * @param  {String} index The path of the index file in the iframe.
-         * @return {String}       Local URL to the iframe main page.
-         */
-        self.getIframeSrc = function(files, index) {
-            var iframeDir = 'iframe';
-            return $mmFS.getDir(iframeDir).then(function() {
-                return $mmFS.removeDir(iframeDir);
-            }).catch(function() {
-                // Never mind if the directory does not exist, or could not be removed.
-            }).then(function() {
-                return $mmFS.createDir(iframeDir);
-            }).then(function() {
-                var promises = [];
-                angular.forEach(files, function(localPath, iframePath) {
-                    var promise,
-                        path = iframeDir + '/' + iframePath;
-                    promise = $mmFS.createFile(path).then(function() {
-                        // We call createFile to ensure that the path exists.
-                        return $mmFS.copyFile(localPath, path);
-                    });
-                    promises.push(promise);
-                });
-                return $q.all(promises);
-            }).then(function() {
-                return $mmFS.getFile(iframeDir + '/' + index);
-            }).then(function(file) {
-                return file.toURL();
-            });
         };
 
         /**
@@ -436,8 +489,10 @@ angular.module('mm.core')
          * @name $mmUtil#showErrorModal
          * @param {String} errorMessage    Message to show.
          * @param {Boolean} needsTranslate True if the errorMessage is a $translate key, false otherwise.
+         * @param {Number} [autocloseTime] Number of milliseconds to wait to close the modal.
+         *                                 If not defined, modal won't be automatically closed.
          */
-        self.showErrorModal = function(errorMessage, needsTranslate) {
+        self.showErrorModal = function(errorMessage, needsTranslate, autocloseTime) {
             var errorKey = 'mm.core.error',
                 langKeys = [errorKey];
 
@@ -446,10 +501,18 @@ angular.module('mm.core')
             }
 
             $translate(langKeys).then(function(translations) {
-                $ionicPopup.alert({
+                var popup = $ionicPopup.alert({
                     title: translations[errorKey],
                     template: needsTranslate ? translations[errorMessage] : errorMessage
                 });
+
+                if (typeof autocloseTime != 'undefined' && !isNaN(parseInt(autocloseTime))) {
+                    $timeout(function() {
+                        popup.close();
+                    }, parseInt(autocloseTime));
+                } else {
+                    delete popup;
+                }
             });
         };
 
@@ -509,28 +572,19 @@ angular.module('mm.core')
         };
 
         /**
-         * Get the countries list.
+         * Get country name based on country code.
          *
          * @module mm.core
          * @ngdoc method
-         * @name $mmUtil#getCountries
-         * @return {Promise} Promise to be resolved when the list is retrieved.
+         * @name $mmUtil#getCountryName
+         * @param {String} code Country code (AF, ES, US, ...).
+         * @return {String}     Country name. If the country is not found, return the country code.
          */
-        self.getCountries = function() {
-            var deferred = $q.defer();
+        self.getCountryName = function(code) {
+            var countryKey = 'mm.core.country-' + code,
+                countryName = $translate.instant(countryKey);
 
-            if (typeof(countries) !== 'undefined') {
-                deferred.resolve(countries);
-            } else {
-                self.readJSONFile('core/assets/countries.json').then(function(data) {
-                    countries = data;
-                    deferred.resolve(countries);
-                }, function(){
-                    deferred.resolve();
-                });
-            }
-
-            return deferred.promise;
+            return countryName !== countryKey ? countryName : code;
         };
 
         /**
@@ -597,6 +651,91 @@ angular.module('mm.core')
          */
         self.isTrueOrOne = function(value) {
             return typeof value != 'undefined' && (value === true || parseInt(value) === 1);
+        };
+
+        /**
+         * Returns hours, minutes and seconds in a human readable format
+         *
+         * @module mm.core
+         * @ngdoc method
+         * @name $mmUtil#formatTime
+         * @param  {Integer} seconds A number of seconds
+         * @return {String}         Human readable seconds formatted
+         */
+        self.formatTime = function(seconds) {
+            var langKeys = ['mm.core.day', 'mm.core.days', 'mm.core.hour', 'mm.core.hours', 'mm.core.min', 'mm.core.mins',
+                            'mm.core.sec', 'mm.core.secs', 'mm.core.year', 'mm.core.years', 'mm.core.now'];
+
+            return $translate(langKeys).then(function(translations) {
+
+                totalSecs = Math.abs(seconds);
+
+                var years     = Math.floor(totalSecs / mmCoreSecondsYear);
+                var remainder = totalSecs - (years * mmCoreSecondsYear);
+                var days      = Math.floor(remainder / mmCoreSecondsDay);
+                remainder = totalSecs - (days * mmCoreSecondsDay);
+                var hours     = Math.floor(remainder / mmCoreSecondsHour);
+                remainder = remainder - (hours * mmCoreSecondsHour);
+                var mins      = Math.floor(remainder / mmCoreSecondsMinute);
+                var secs      = remainder - (mins * mmCoreSecondsMinute);
+
+                var ss = (secs == 1)  ? translations['mm.core.sec']  : translations['mm.core.secs'];
+                var sm = (mins == 1)  ? translations['mm.core.min']  : translations['mm.core.mins'];
+                var sh = (hours == 1) ? translations['mm.core.hour'] : translations['mm.core.hours'];
+                var sd = (days == 1)  ? translations['mm.core.day']  : translations['mm.core.days'];
+                var sy = (years == 1) ? translations['mm.core.year'] : translations['mm.core.years'];
+
+                var oyears = '',
+                    odays = '',
+                    ohours = '',
+                    omins = '',
+                    osecs = '';
+
+                if (years) {
+                    oyears  = years + ' ' + sy;
+                }
+                if (days) {
+                    odays  = days + ' ' + sd;
+                }
+                if (hours) {
+                    ohours = hours + ' ' + sh;
+                }
+                if (mins) {
+                    omins  = mins + ' ' + sm;
+                }
+                if (secs) {
+                    osecs  = secs + ' ' + ss;
+                }
+
+                if (years) {
+                    return oyears + ' ' + odays;
+                }
+                if (days) {
+                    return odays + ' ' + ohours;
+                }
+                if (hours) {
+                    return ohours + ' ' + omins;
+                }
+                if (mins) {
+                    return omins + ' ' + osecs;
+                }
+                if (secs) {
+                    return osecs;
+                }
+                return translations['mm.core.now'];
+            });
+        };
+
+        /**
+         * Empties an array without losing its reference.
+         *
+         * @module mm.core
+         * @ngdoc method
+         * @name $mmUtil#emptyArray
+         * @param  {Array} array Array to empty.
+         */
+        self.emptyArray = function(array) {
+            array.length = 0; // Empty array without losing its reference.
         };
 
         return self;

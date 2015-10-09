@@ -51,7 +51,8 @@ angular.module('mm.core.course')
      * @param {String} addon The addon's name (mmaLabel, mmaForum, ...)
      * @param {String} handles The module this handler handles, e.g. forum, label. This value will be compared with
      *                         the value contained in module.modname from the Webservice core_course_get_contents.
-     * @param  {Function} handler  Returns an object defining the following methods:
+     * @param {String|Object|Function} handler Must be resolved to an object defining the following functions. Or to a function
+     *                           returning an object defining these functions. See {@link $mmUtil#resolveObject}.
      *                             - isEnabled (Boolean) Whether or not the handler is enabled on a site level.
      *                             - getController(module, courseid) (Function) Returns the function that will act as controller.
      *                                                                See core/components/course/templates/section.html
@@ -71,7 +72,7 @@ angular.module('mm.core.course')
         return true;
     };
 
-    self.$get = function($injector, $q, $log, $mmSite, $mmCourseContentHandler) {
+    self.$get = function($q, $log, $mmSite, $mmUtil, $mmCourseContentHandler) {
         var enabledHandlers = {},
             self = {};
 
@@ -115,7 +116,7 @@ angular.module('mm.core.course')
             var promise;
 
             if (typeof handlerInfo.instance === 'undefined') {
-                handlerInfo.instance = $injector.get(handlerInfo.handler);
+                handlerInfo.instance = $mmUtil.resolveObject(handlerInfo.handler, true);
             }
 
             if (!$mmSite.isLoggedIn()) {
@@ -125,11 +126,15 @@ angular.module('mm.core.course')
             }
 
             // Checks if the content is enabled.
-            return promise.then(function() {
+            return promise.then(function(enabled) {
+                if (enabled) {
                     enabledHandlers[handles] = handlerInfo.instance;
-                }, function() {
-                    delete enabledHandlers[handles];
-                });
+                } else {
+                    return $q.reject();
+                }
+            }).catch(function() {
+                delete enabledHandlers[handles];
+            });
         };
 
         /**

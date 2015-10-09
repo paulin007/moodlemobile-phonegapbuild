@@ -1,6 +1,7 @@
 {
     "about": "O aplikaci",
     "cacheexpirationtime": "Vypršení platnosti vyrovnávací paměti (milisekundy)",
+    "currentlanguage": "Současný jazyk",
     "deletesitefiles": "Jste si jisti, že chcete odstranit stažené soubory z tohoto webu?",
     "development": "Vývoj",
     "enabledebugging": "Povolit ladící informace",
@@ -10,5 +11,6 @@
     "license": "Licence",
     "settings": "Nastavení",
     "spaceusage": "Použitý prostor",
+    "success": "Úspěch",
     "total": "Celkem"
 }

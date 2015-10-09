@@ -19,73 +19,141 @@ angular.module('mm.core.sidemenu')
  * and notify an update in the data.
  *
  * @module mm.core.sidemenu
- * @ngdoc service
+ * @ngdoc provider
  * @name $mmSideMenuDelegate
  */
-.factory('$mmSideMenuDelegate', function($log) {
-
-    $log = $log.getInstance('$mmSideMenuDelegate');
-
-    var plugins = {},
-        self = {},
-        data,
-        controllers = [];
+.provider('$mmSideMenuDelegate', function() {
+    var navHandlers = {},
+        self = {};
 
     /**
-     * Register a plugin to show in the side menu.
+     * Register a navigation handler.
      *
      * @module mm.core.sidemenu
      * @ngdoc method
-     * @name $mmSideMenuDelegate#registerPlugin
-     * @param  {String}   name     Name of the plugin.
-     * @param  {Function} callback Function to call to get the plugin data. This function should return an object with:
-     *                                 -icon: Icon to show in the menu item.
-     *                                 -title: Plugin name to be displayed.
-     *                                 -state: sref to the plugin's main state (i.e. site.messages).
-     *                                 -badge: Number to show next to the plugin (like new notifications number). Optional.
-     *                             If the plugin should not be shown (disabled, etc.) this function should return undefined.
+     * @name $mmSideMenuDelegateProvider#registerNavHandler
+     * @param {String} addon The addon's name (mmaFiles, mmaMessages, ...)
+     * @param {String|Object|Function} handler Must be resolved to an object defining the following functions. Or to a function
+     *                           returning an object defining these functions. See {@link $mmUtil#resolveObject}.
+     *                             - isEnabled (Boolean|Promise) Whether or not the handler is enabled on a site level.
+     *                                                           When using a promise, it should return a boolean.
+     *                             - getController (Object) Returns the object that will act as controller.
+     *                                                                See core/components/sidemenu/templates/menu.html
+     *                                                                for the list of scope variables expected.
      */
-    self.registerPlugin = function(name, callback) {
-        $log.debug("Register plugin '"+name+"' in side menu.");
-        plugins[name] = callback;
-    };
-
-    /**
-     * Update the plugin data stored in the delegate.
-     *
-     * @module mm.core.sidemenu
-     * @ngdoc method
-     * @name $mmSideMenuDelegate#updatePluginData
-     * @param  {String}   name     Name of the plugin.
-     */
-    self.updatePluginData = function(name) {
-        $log.debug("Update plugin '"+name+"' data in side menu.");
-        var pluginData = plugins[name]();
-        if (typeof pluginData === 'object' && typeof pluginData.then === 'function') {
-            // Promise, we only care when it is resolved.
-            pluginData.then(function(finalData) {
-                data[name] = finalData;
-            });
-        } else if (typeof(pluginData) !== 'undefined') {
-            data[name] = pluginData;
+    self.registerNavHandler = function(addon, handler, priority) {
+        if (typeof navHandlers[addon] !== 'undefined') {
+            console.log("$mmSideMenuDelegateProvider: Addon '" + navHandlers[addon].addon + "' already registered as navigation handler");
+            return false;
         }
+        console.log("$mmSideMenuDelegateProvider: Registered addon '" + addon + "' as navigation handler.");
+        navHandlers[addon] = {
+            addon: addon,
+            handler: handler,
+            instance: undefined,
+            priority: priority
+        };
+        return true;
     };
 
-    /**
-     * Get the data of the registered plugins.
-     *
-     * @module mm.core.sidemenu
-     * @ngdoc method
-     * @name $mmSideMenuDelegate#getData
-     * @return {Object} Registered plugins data.
-     */
-    self.getData = function() {
-        data = {};
-        angular.forEach(plugins, function(callback, plugin) {
-            self.updatePluginData(plugin);
-        });
-        return data;
+    self.$get = function($mmUtil, $q, $log, $mmSite) {
+        var enabledNavHandlers = {},
+            currentSiteHandlers = [], // Handlers to return.
+            self = {};
+
+        $log = $log.getInstance('$mmSideMenuDelegate');
+
+        /**
+         * Get the handlers for the current site.
+         *
+         * @module mm.core.sidemenu
+         * @ngdoc method
+         * @name $mmSideMenuDelegate#getNavHandlers
+         * @return {Promise} Resolved with an array of objects containing 'priority' and 'controller'.
+         */
+        self.getNavHandlers = function() {
+            return currentSiteHandlers;
+        };
+
+        /**
+         * Update the handler for the current site.
+         *
+         * @module mm.core.sidemenu
+         * @ngdoc method
+         * @name $mmSideMenuDelegate#updateNavHandler
+         * @param {String} addon The addon.
+         * @param {Object} handlerInfo The handler details.
+         * @return {Promise} Resolved when enabled, rejected when not.
+         * @protected
+         */
+        self.updateNavHandler = function(addon, handlerInfo) {
+            var promise;
+
+            if (typeof handlerInfo.instance === 'undefined') {
+                handlerInfo.instance = $mmUtil.resolveObject(handlerInfo.handler, true);
+            }
+
+            if (!$mmSite.isLoggedIn()) {
+                promise = $q.reject();
+            } else {
+                promise = $q.when(handlerInfo.instance.isEnabled());
+            }
+
+            // Checks if the content is enabled.
+            return promise.then(function(enabled) {
+                if (enabled) {
+                    enabledNavHandlers[addon] = {
+                        instance: handlerInfo.instance,
+                        priority: handlerInfo.priority
+                    };
+                } else {
+                    return $q.reject();
+                }
+            }).catch(function() {
+                delete enabledNavHandlers[addon];
+            });
+        };
+
+        /**
+         * Update the handlers for the current site.
+         *
+         * @module mm.core.sidemenu
+         * @ngdoc method
+         * @name $mmSideMenuDelegate#updateNavHandlers
+         * @return {Promise} Resolved when done.
+         * @protected
+         */
+        self.updateNavHandlers = function() {
+            var promises = [];
+
+            $log.debug('Updating navigation handlers for current site.');
+
+            // Loop over all the content handlers.
+            angular.forEach(navHandlers, function(handlerInfo, addon) {
+                promises.push(self.updateNavHandler(addon, handlerInfo));
+            });
+
+            return $q.all(promises).then(function() {
+                return true;
+            }, function() {
+                // Never reject.
+                return true;
+            }).finally(function() {
+
+                $mmUtil.emptyArray(currentSiteHandlers);
+
+                angular.forEach(enabledNavHandlers, function(handler) {
+                    currentSiteHandlers.push({
+                        controller: handler.instance.getController(),
+                        priority: handler.priority
+                    });
+                });
+            });
+        };
+
+        return self;
     };
 
     return self;
+
 });

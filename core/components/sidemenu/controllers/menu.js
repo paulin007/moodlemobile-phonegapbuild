@@ -21,9 +21,10 @@ angular.module('mm.core.sidemenu')
  * @ngdoc controller
  * @name mmSideMenuCtrl
  */
-.controller('mmSideMenuCtrl', function($scope, $state, $mmSideMenuDelegate, $mmSitesManager, $mmSite, $mmConfig, $mmEvents,
-            $timeout, mmCoreEventLanguageChanged) {
-    $scope.plugins = $mmSideMenuDelegate.getData();
+.controller('mmSideMenuCtrl', function($scope, $state, $mmSideMenuDelegate, $mmSitesManager, $mmSite, $mmEvents,
+            $timeout, mmCoreEventLanguageChanged, mmCoreEventSiteUpdated) {
+
+    $scope.handlers = $mmSideMenuDelegate.getNavHandlers();
     $scope.siteinfo = $mmSite.getInfo();
 
     $scope.logout = function() {
@@ -36,11 +37,32 @@ angular.module('mm.core.sidemenu')
         $scope.docsurl = docsurl;
     });
 
-    $mmEvents.on(mmCoreEventLanguageChanged, function() {
-        // Update site info. We need to use $timeout to force a $digest and make $watch notice the variable change.
+    function updateSiteInfo() {
+        // We need to use $timeout to force a $digest and make $watch notice the variable change.
         $scope.siteinfo = undefined;
         $timeout(function() {
             $scope.siteinfo = $mmSite.getInfo();
+
+            // Update docs URL, maybe the Moodle release has changed.
+            $mmSite.getDocsUrl().then(function(docsurl) {
+                $scope.docsurl = docsurl;
+            });
         });
+    }
+
+    var langObserver = $mmEvents.on(mmCoreEventLanguageChanged, updateSiteInfo);
+    var updateSiteObserver = $mmEvents.on(mmCoreEventSiteUpdated, function(siteid) {
+        if ($mmSite.getId() === siteid) {
+            updateSiteInfo();
+        }
+    });
+
+    $scope.$on('$destroy', function() {
+        if (langObserver && langObserver.off) {
+            langObserver.off();
+        }
+        if (updateSiteObserver && updateSiteObserver.off) {
+            updateSiteObserver.off();
+        }
     });
 });

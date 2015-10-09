@@ -15,8 +15,9 @@
 angular.module('mm.addons.notifications', [])
 
 .constant('mmaNotificationsListLimit', 20) // Max of notifications to retrieve in each WS call.
+.constant('mmaNotificationsPriority', 800)
 
-.config(function($stateProvider) {
+.config(function($stateProvider, $mmSideMenuDelegateProvider, mmaNotificationsPriority) {
 
     $stateProvider
 
@@ -30,25 +31,16 @@ angular.module('mm.addons.notifications', [])
         }
     });
 
+    // Register side menu addon.
+    $mmSideMenuDelegateProvider.registerNavHandler('mmaNotifications', '$mmaNotificationsHandlers.sideMenuNav', mmaNotificationsPriority);
 })
 
-.run(function($log, $mmSideMenuDelegate, $mmaNotifications, $mmPushNotificationsDelegate, $mmUtil, $state, $injector) {
+.run(function($log, $mmaNotifications, $mmUtil, $state, $mmAddonManager) {
     $log = $log.getInstance('mmaNotifications');
 
-    $mmSideMenuDelegate.registerPlugin('mmaNotifications', function() {
-        if ($mmaNotifications.isPluginEnabled()) {
-            return {
-                icon: 'ion-ios-bell',
-                state: 'site.notifications',
-                title: 'mma.notifications.notifications'
-            };
-        }
-    });
-
     // Register push notification clicks.
-    try {
-        // Use injector because the delegate belongs to an addon, so it might not exist.
-        var $mmPushNotificationsDelegate = $injector.get('$mmPushNotificationsDelegate');
+    var $mmPushNotificationsDelegate = $mmAddonManager.get('$mmPushNotificationsDelegate');
+    if ($mmPushNotificationsDelegate) {
         $mmPushNotificationsDelegate.registerHandler('mmaNotifications', function(notification) {
             if ($mmUtil.isTrueOrOne(notification.notif)) {
                 $mmaNotifications.isPluginEnabledForSite(notification.site).then(function() {
@@ -59,7 +51,5 @@ angular.module('mm.addons.notifications', [])
                 return true;
             }
         });
-    } catch(ex) {
-        $log.error('Cannot register push notifications handler: delegate not found');
     }
 });

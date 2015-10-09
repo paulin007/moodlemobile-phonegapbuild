@@ -36,26 +36,27 @@ angular.module('mm.core')
 
     function handleExternalContent(siteId, dom, targetAttr, url, component, componentId) {
 
-        if (!url || !$mmUtil.isPluginFileUrl(url)) {
-            $log.debug('Ignoring non-pluginfile URL: ' + url);
+        if (!url || !$mmUtil.isDownloadableUrl(url)) {
+            $log.debug('Ignoring non-downloadable URL: ' + url);
             return;
         }
 
         // Get the webservice pluginfile URL, we ignore failures here.
         $mmSitesManager.getSite(siteId).then(function(site) {
-            var pluginfileURL = $mmUtil.fixPluginfileURL(url, site.token),
-                fn;
-
-            if (!pluginfileURL) {
-                $log.debug('Ignoring invalid pluginfile URL');
+            if (!site.canDownloadFiles() && $mmUtil.isPluginFileUrl(url)) {
+                dom.remove(); // Remove element since it'll be broken.
                 return;
-            } else if (targetAttr === 'src') {
+            }
+
+            var fn;
+
+            if (targetAttr === 'src') {
                 fn = $mmFilepool.getSrcByUrl;
             } else {
                 fn = $mmFilepool.getUrlByUrl;
             }
 
-            fn(siteId, pluginfileURL, component, componentId).then(function(finalUrl) {
+            fn(siteId, url, component, componentId).then(function(finalUrl) {
                 $log.debug('Using URL ' + finalUrl + ' for ' + url);
                 dom.setAttribute(targetAttr, finalUrl);
             });

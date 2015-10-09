@@ -1,6 +1,7 @@
 {
     "about": "Hakkında",
     "cacheexpirationtime": "Önbellek zaman aşımı (milisaniye)",
+    "currentlanguage": "Geçerli dil",
     "deletesitefiles": "Bu siteden indirdiğiniz dosyaları silmek istediğinizden eminmisiniz?",
     "development": "Gelişmiş ayarlar",
     "enabledebugging": "Hata ayıklamayı etkinleştir",
@@ -10,5 +11,6 @@
     "license": "Lisans",
     "settings": "Ayarlar",
     "spaceusage": "Kullanılan alan",
+    "success": "Başarılı",
     "total": "Toplam"
 }

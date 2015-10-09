@@ -14,6 +14,8 @@
 
 angular.module('mm.core.settings', [])
 
+.constant('mmCoreSettingsReportInBackground', 'mmCoreReportInBackground')
+
 .config(function($stateProvider) {
 
     $stateProvider
@@ -22,8 +24,7 @@ angular.module('mm.core.settings', [])
         url: '/mm_settings',
         views: {
             'site': {
-                templateUrl: 'core/components/settings/templates/list.html',
-                controller: 'mmSettingsListCtrl'
+                templateUrl: 'core/components/settings/templates/list.html'
             }
         }
     })
@@ -54,6 +55,16 @@ angular.module('mm.core.settings', [])
             'site': {
                 templateUrl: 'core/components/settings/templates/space-usage.html',
                 controller: 'mmSettingsSpaceUsageCtrl'
+            }
+        }
+    })
+
+    .state('site.mm_settings-synchronization', {
+        url: '/mm_settings-synchronization',
+        views: {
+            'site': {
+                templateUrl: 'core/components/settings/templates/synchronization.html',
+                controller: 'mmSettingsSynchronizationCtrl'
             }
         }
     });
